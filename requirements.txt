@@ -1,6 +1,2 @@
-streamlit
-streamlit-mic-recorder
-openai
-langchain
-langchain-openai
-python-dotenv
+streamlit>=1.44.0
+pandas>=2.2.0
