@@ -65,15 +65,13 @@ INDICATOR_LIST = [
     for item in items
 ]
 
-# Escala del anexo:
-# 0 Básico | 1 Controla | 2 Supera | 3 Certificado | 4 Excelente | 5 Master | 6 Máximo
 LEVELS = {
     0: {
         "name": "BÁSICO",
         "short": "Entrada en la compañía. Minuto cero.",
         "signals": [
             "inicio", "recién incorporado", "sin experiencia", "aprendiendo", "base",
-            "junior", "acompañado", "primeras visitas", "nivel inicial", "minuto cero",
+            "junior", "acompañado", "primeras visitas", "nivel inicial", "minuto cero"
         ],
     },
     1: {
@@ -82,7 +80,7 @@ LEVELS = {
         "signals": [
             "realiza visitas por su cuenta", "autonomía", "diagnostica", "interpreta datos",
             "aconseja", "manejo", "sanidad", "explica productos", "argumenta productos",
-            "gana confianza", "forma al personal", "asesoramiento con garantías",
+            "gana confianza", "forma al personal", "asesoramiento con garantías"
         ],
     },
     2: {
@@ -91,7 +89,7 @@ LEVELS = {
         "signals": [
             "plan de mejora", "mejora continua", "asesoramiento de calidad", "reconocimiento",
             "desarrollo de explotación", "formación especializada", "consejos valiosos",
-            "asesoramiento de alta calidad",
+            "asesoramiento de alta calidad"
         ],
     },
     3: {
@@ -99,7 +97,7 @@ LEVELS = {
         "short": "Como el nivel anterior, con acreditación o certificación obtenida.",
         "signals": [
             "certificación", "certificado", "acreditación", "acreditado", "titulado",
-            "curso certificado", "nivel acreditado",
+            "curso certificado", "nivel acreditado"
         ],
     },
     4: {
@@ -107,7 +105,7 @@ LEVELS = {
         "short": "Asesoramiento reconocido de alto valor. Especialización, proyectos, publicaciones y liderazgo.",
         "signals": [
             "alto valor", "referente", "reconocido en el sector", "proyecto de investigación",
-            "publicaciones", "liderazgo", "alta especialización", "ponente", "proyecto de calado",
+            "publicaciones", "liderazgo", "alta especialización", "ponente", "proyecto de calado"
         ],
     },
     5: {
@@ -115,7 +113,7 @@ LEVELS = {
         "short": "Sobresaliente. Docencia universitaria o posgrado, publicaciones científicas y reconocimiento acreditado.",
         "signals": [
             "docencia universitaria", "máster", "posgrado", "publicaciones científicas",
-            "comité científico", "referente en la materia", "docente", "universitario",
+            "comité científico", "referente en la materia", "docente", "universitario"
         ],
     },
     6: {
@@ -123,12 +121,12 @@ LEVELS = {
         "short": "Reconocimiento y capacidad docente de máxima referencia. Nivel abierto y excepcional.",
         "signals": [
             "máximo", "referencia absoluta", "trayectoria excepcional", "muy alto reconocimiento",
-            "referente nacional", "referente internacional", "excelencia sostenida",
+            "referente nacional", "referente internacional", "excelencia sostenida"
         ],
     },
 }
 
-LEVEL_HINTS = {
+LEVEL_ORDER_HINT = {
     0: ["entrada", "cero", "inicial", "base", "aprende"],
     1: ["autonomia", "visitas", "diagnostica", "interpreta", "explica productos", "confianza"],
     2: ["planes de mejora", "alta calidad", "reconocimiento", "especializada"],
@@ -187,9 +185,18 @@ def transcribe_audio_if_possible(audio_file):
         return None, "No hay audio grabado."
 
     if OpenAI is None:
-        return None, "La librería openai no está disponible."
+        return None, "La librería openai no está instalada."
 
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    api_key = ""
+    try:
+        if "OPENAI_API_KEY" in st.secrets:
+            api_key = st.secrets["OPENAI_API_KEY"]
+    except Exception:
+        pass
+
+    if not api_key:
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+
     if not api_key:
         return None, "No se ha definido OPENAI_API_KEY."
 
@@ -227,6 +234,7 @@ def transcribe_audio_if_possible(audio_file):
 
 def score_level(description: str, indicator: str) -> dict:
     text = normalize_text(description)
+    indicator_n = normalize_text(indicator)
     indicator_name = indicator.split(" · ", 1)[1] if " · " in indicator else indicator
 
     if not text:
@@ -242,12 +250,12 @@ def score_level(description: str, indicator: str) -> dict:
 
     for level, meta in LEVELS.items():
         for signal in meta["signals"]:
-            sig_n = normalize_text(signal)
-            if sig_n in text:
+            sig = normalize_text(signal)
+            if sig in text:
                 raw_scores[level] += 3
                 matched[level].append(signal)
 
-    for level, hints in LEVEL_HINTS.items():
+    for level, hints in LEVEL_ORDER_HINT.items():
         for hint in hints:
             hint_n = normalize_text(hint)
             if hint_n in text:
@@ -266,20 +274,16 @@ def score_level(description: str, indicator: str) -> dict:
         raw_scores[4] += 4
     if any(x in text for x in ["universidad", "universitario", "posgrado", "master", "comite cientifico", "docencia"]):
         raw_scores[5] += 5
-    if any(x in text for x in ["maximo", "referente nacional", "referente internacional", "trayectoria excepcional"]):
+    if any(x in text for x in ["referente nacional", "referente internacional", "trayectoria excepcional", "maximo"]):
         raw_scores[6] += 5
 
-    practical_hits = sum(
-        1
-        for x in [
-            "autonomia", "visitas", "diagnostica", "interpreta", "aconseja", "manejo",
-            "sanidad", "productos", "datos", "informes", "ingles", "programas",
-        ]
-        if x in text
-    )
-    if practical_hits >= 2:
+    practical_count = sum(1 for x in [
+        "autonomia", "visitas", "diagnostica", "interpreta", "aconseja", "manejo",
+        "sanidad", "productos", "datos", "informes", "ingles", "programas"
+    ] if x in text)
+    if practical_count >= 2:
         raw_scores[1] += 2
-    if practical_hits >= 4:
+    if practical_count >= 4:
         raw_scores[2] += 2
 
     best_level = max(raw_scores, key=lambda x: raw_scores[x])
@@ -303,22 +307,19 @@ def score_level(description: str, indicator: str) -> dict:
         best_level = 5
 
     matches = sorted(set(matched[best_level]))
-    matched_keywords = sorted(set(keyword_hits))
-
     fragments = []
+
     if matches:
         fragments.append(f"evidencias de nivel: {', '.join(matches[:6])}")
-    if matched_keywords:
-        fragments.append(f"contenido alineado con el indicador: {', '.join(matched_keywords[:5])}")
+    if keyword_hits:
+        fragments.append(f"alineación con el indicador: {', '.join(keyword_hits[:5])}")
 
     if fragments:
-        reason = (
-            f"Se propone {best_level} · {LEVELS[best_level]['name']} porque el texto sugiere "
-            + " | ".join(fragments)
-            + "."
-        )
+        reason = f"Se propone {best_level} - {LEVELS[best_level]['name']} porque el texto aporta " + " | ".join(fragments) + "."
     else:
-        reason = f"Se propone {best_level} · {LEVELS[best_level]['name']} por ajuste global del contenido a los criterios de la escala."
+        reason = f"Se propone {best_level} - {LEVELS[best_level]['name']} por ajuste global del contenido a los criterios de la escala."
+
+    reason += f" Indicador evaluado: {indicator_n}."
 
     return {
         "score": best_level,
@@ -375,16 +376,13 @@ def results_dataframe() -> pd.DataFrame:
 initialize_state()
 
 st.title("Technical Assessment Assistant")
-st.caption(
-    "Evaluación rápida de 25 indicadores con propuesta automática de nivel 0–6, "
-    "entrada por texto o voz y bloque final listo para copiar/pegar."
-)
+st.caption("Evaluación rápida de 25 indicadores con propuesta automática de nivel 0–6, entrada por texto o voz y bloque final listo para copiar/pegar.")
 
 with st.expander("Ver escala de puntuación", expanded=False):
     for level, meta in LEVELS.items():
         st.markdown(f"**{level} · {meta['name']}** — {meta['short']}")
 
-left, right = st.columns([1.15, 1])
+left, right = st.columns([1.1, 1])
 
 with left:
     st.subheader("1) Evaluar un indicador")
@@ -398,7 +396,7 @@ with left:
 
     current_data = st.session_state.results[selected_indicator]
 
-    st.markdown("**Descripción escrita**")
+    st.markdown("**Descripción de evidencia**")
     description = st.text_area(
         "Describe lo observado",
         value=current_data["description"],
@@ -414,7 +412,7 @@ with left:
     audio_file = st.audio_input(
         "Graba la descripción del indicador",
         sample_rate=16000,
-        help="Graba la evidencia con el micrófono. Si existe OPENAI_API_KEY, la app transcribirá el audio.",
+        help="Graba la evidencia con el micrófono. La app intentará transcribirla.",
     )
 
     c1, c2, c3, c4 = st.columns([1, 1, 1, 1.2])
@@ -431,12 +429,12 @@ with left:
         transcript_text, transcript_error = transcribe_audio_if_possible(audio_file)
         if transcript_error:
             st.error(transcript_error)
-            st.info("La app sigue funcionando por texto. Si quieres voz-a-texto automática, define OPENAI_API_KEY en el despliegue.")
         else:
             if description.strip():
                 description = description.strip() + "\n\n" + transcript_text.strip()
             else:
                 description = transcript_text.strip()
+
             st.session_state.results[selected_indicator]["description"] = description
             st.success("Audio transcrito y añadido a la descripción.")
             st.rerun()
@@ -556,5 +554,5 @@ with st.expander("Cómo desplegar", expanded=False):
         language="bash",
     )
     st.markdown(
-        "Para transcribir voz automáticamente, añade `OPENAI_API_KEY` a las variables de entorno del despliegue."
+        "Para transcribir voz automáticamente, añade OPENAI_API_KEY en .streamlit/secrets.toml o como variable de entorno."
     )
