@@ -1,17 +1,9 @@
 import json
-import os
 import re
-import tempfile
 from datetime import datetime
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-
-try:
-    from openai import OpenAI
-except Exception:
-    OpenAI = None
 
 st.set_page_config(
     page_title="Technical Assessment Assistant",
@@ -65,6 +57,8 @@ INDICATOR_LIST = [
     for item in items
 ]
 
+# Escala del anexo:
+# 0 Básico | 1 Controla | 2 Supera | 3 Certificado | 4 Excelente | 5 Master | 6 Máximo
 LEVELS = {
     0: {
         "name": "BÁSICO",
@@ -78,9 +72,10 @@ LEVELS = {
         "name": "CONTROLA",
         "short": "Asesoramiento con garantías. Conoce productos, manejo, nutrición y sanidad. Genera confianza.",
         "signals": [
-            "realiza visitas por su cuenta", "autonomía", "diagnostica", "interpreta datos",
-            "aconseja", "manejo", "sanidad", "explica productos", "argumenta productos",
-            "gana confianza", "forma al personal", "asesoramiento con garantías"
+            "realiza visitas por su cuenta", "autonomía", "autonomia", "diagnostica",
+            "interpreta datos", "aconseja", "manejo", "sanidad", "explica productos",
+            "argumenta productos", "gana confianza", "forma al personal",
+            "asesoramiento con garantías", "asesoramiento con garantias"
         ],
     },
     2: {
@@ -88,45 +83,51 @@ LEVELS = {
         "short": "Asesoramiento de alta calidad. Aporta consejos valiosos, planes de mejora y reconocimiento.",
         "signals": [
             "plan de mejora", "mejora continua", "asesoramiento de calidad", "reconocimiento",
-            "desarrollo de explotación", "formación especializada", "consejos valiosos",
-            "asesoramiento de alta calidad"
+            "desarrollo de explotación", "desarrollo de explotacion",
+            "formación especializada", "formacion especializada",
+            "consejos valiosos", "asesoramiento de alta calidad"
         ],
     },
     3: {
         "name": "CERTIFICADO",
         "short": "Como el nivel anterior, con acreditación o certificación obtenida.",
         "signals": [
-            "certificación", "certificado", "acreditación", "acreditado", "titulado",
-            "curso certificado", "nivel acreditado"
+            "certificación", "certificacion", "certificado", "acreditación",
+            "acreditacion", "acreditado", "titulado", "curso certificado",
+            "nivel acreditado"
         ],
     },
     4: {
         "name": "EXCELENTE",
         "short": "Asesoramiento reconocido de alto valor. Especialización, proyectos, publicaciones y liderazgo.",
         "signals": [
-            "alto valor", "referente", "reconocido en el sector", "proyecto de investigación",
-            "publicaciones", "liderazgo", "alta especialización", "ponente", "proyecto de calado"
+            "alto valor", "referente", "reconocido en el sector",
+            "proyecto de investigación", "proyecto de investigacion",
+            "publicaciones", "liderazgo", "alta especialización",
+            "alta especializacion", "ponente", "proyecto de calado"
         ],
     },
     5: {
         "name": "MASTER",
         "short": "Sobresaliente. Docencia universitaria o posgrado, publicaciones científicas y reconocimiento acreditado.",
         "signals": [
-            "docencia universitaria", "máster", "posgrado", "publicaciones científicas",
-            "comité científico", "referente en la materia", "docente", "universitario"
+            "docencia universitaria", "máster", "master", "posgrado",
+            "publicaciones científicas", "publicaciones cientificas",
+            "comité científico", "comite cientifico", "docente", "universitario"
         ],
     },
     6: {
         "name": "MÁXIMO",
         "short": "Reconocimiento y capacidad docente de máxima referencia. Nivel abierto y excepcional.",
         "signals": [
-            "máximo", "referencia absoluta", "trayectoria excepcional", "muy alto reconocimiento",
-            "referente nacional", "referente internacional", "excelencia sostenida"
+            "máximo", "maximo", "referencia absoluta", "trayectoria excepcional",
+            "muy alto reconocimiento", "referente nacional",
+            "referente internacional", "excelencia sostenida"
         ],
     },
 }
 
-LEVEL_ORDER_HINT = {
+LEVEL_HINTS = {
     0: ["entrada", "cero", "inicial", "base", "aprende"],
     1: ["autonomia", "visitas", "diagnostica", "interpreta", "explica productos", "confianza"],
     2: ["planes de mejora", "alta calidad", "reconocimiento", "especializada"],
@@ -137,33 +138,55 @@ LEVEL_ORDER_HINT = {
 }
 
 INDICATOR_KEYWORDS = {
-    "Nutrición en general": ["ración", "nutrición", "balance", "necesidades", "formulación"],
+    "Nutrición en general": ["ración", "nutrición", "nutricion", "balance", "necesidades", "formulación", "formulacion"],
     "Conocimiento de productos": ["producto", "portfolio", "aditivo", "argumenta", "recomienda"],
-    "Nutrición aplicada": ["aplicación", "ajusta", "caso práctico", "objetivo productivo"],
-    "Sistemas de alimentación": ["sistema de alimentación", "comedero", "mezcla", "distribución"],
+    "Nutrición aplicada": ["aplicación", "aplicacion", "ajusta", "caso práctico", "caso practico", "objetivo productivo"],
+    "Sistemas de alimentación": ["sistema de alimentación", "sistema de alimentacion", "comedero", "mezcla", "distribución", "distribucion"],
     "Manejo del agua": ["agua", "caudal", "calidad del agua", "consumo de agua"],
-    "Patología general": ["patología", "diagnóstico diferencial", "signos clínicos"],
-    "Patología metabólica": ["metabólica", "cetosis", "acidosis", "hipocalcemia"],
-    "Patología infecciosa y parasitaria": ["infecciosa", "parasitaria", "agente", "parásito", "infección"],
-    "Anatomía patológica": ["lesión", "necropsia", "hallazgo", "anatomía patológica"],
-    "Técnicas diagnosticas": ["muestra", "laboratorio", "pcr", "serología", "diagnóstico"],
-    "Antibioterapia": ["antibiótico", "antibioterapia", "antibiograma", "tratamiento"],
-    "Aditivos alternativos": ["aditivo alternativo", "probiótico", "prebiótico", "fitogénico"],
+    "Patología general": ["patología", "patologia", "diagnóstico diferencial", "diagnostico diferencial", "signos clínicos", "signos clinicos"],
+    "Patología metabólica": ["metabólica", "metabolica", "cetosis", "acidosis", "hipocalcemia"],
+    "Patología infecciosa y parasitaria": ["infecciosa", "parasitaria", "agente", "parásito", "parasito", "infección", "infeccion"],
+    "Anatomía patológica": ["lesión", "lesion", "necropsia", "hallazgo", "anatomía patológica", "anatomia patologica"],
+    "Técnicas diagnosticas": ["muestra", "laboratorio", "pcr", "serología", "serologia", "diagnóstico", "diagnostico"],
+    "Antibioterapia": ["antibiótico", "antibiotico", "antibioterapia", "antibiograma", "tratamiento"],
+    "Aditivos alternativos": ["aditivo alternativo", "probiótico", "probiotico", "prebiótico", "prebiotico", "fitogénico", "fitogenico"],
     "Bioseguridad": ["bioseguridad", "protocolo", "riesgo", "entrada", "limpieza"],
-    "Instalaciones": ["instalación", "ventilación", "diseño", "densidad", "equipamiento"],
-    "Manejo utiles diagnostico instalaciones": ["checklist", "auditoría", "medición", "instrumento"],
-    "Arranques": ["arranque", "inicio", "transición", "primeros días"],
-    "Animales en producción": ["producción", "rendimiento", "lote", "fase productiva"],
-    "Reposición": ["reposición", "recría", "futuras reproductoras", "desarrollo"],
+    "Instalaciones": ["instalación", "instalacion", "ventilación", "ventilacion", "diseño", "diseno", "densidad", "equipamiento"],
+    "Manejo utiles diagnostico instalaciones": ["checklist", "auditoría", "auditoria", "medición", "medicion", "instrumento"],
+    "Arranques": ["arranque", "inicio", "transición", "transicion", "primeros días", "primeros dias"],
+    "Animales en producción": ["producción", "produccion", "rendimiento", "lote", "fase productiva"],
+    "Reposición": ["reposición", "reposicion", "recría", "recria", "futuras reproductoras", "desarrollo"],
     "Sostenibilidad": ["sostenibilidad", "huella", "eficiencia", "impacto ambiental"],
     "Recogida de datos": ["datos", "toma de datos", "recogida", "registro"],
-    "Tratamiento de datos": ["análisis", "tabla", "power bi", "estadística", "indicador"],
-    "Tratamiento de textos": ["texto", "redacción", "síntesis", "documentación"],
-    "Informes": ["informe", "conclusión", "recomendación", "presentación"],
-    "Ingles": ["english", "inglés", "meeting", "paper", "presentation"],
+    "Tratamiento de datos": ["análisis", "analisis", "tabla", "power bi", "estadística", "estadistica", "indicador"],
+    "Tratamiento de textos": ["texto", "redacción", "redaccion", "síntesis", "sintesis", "documentación", "documentacion"],
+    "Informes": ["informe", "conclusión", "conclusion", "recomendación", "recomendacion", "presentación", "presentacion"],
+    "Ingles": ["english", "inglés", "ingles", "meeting", "paper", "presentation"],
     "Manejo herramientas/programas": ["excel", "power bi", "software", "programa", "herramienta"],
 }
 
+QUESTION_GUIDE = [
+    {
+        "Pregunta": "¿Qué haces tú solo en este tema, sin ayuda?",
+        "Objetivo": "Medir autonomía real y nivel operativo.",
+    },
+    {
+        "Pregunta": "Cuéntame un caso reciente y concreto en el que lo hayas aplicado.",
+        "Objetivo": "Confirmar aplicación práctica, no solo conocimiento teórico.",
+    },
+    {
+        "Pregunta": "¿Qué decisión o recomendación diste tú en ese caso?",
+        "Objetivo": "Valorar capacidad de análisis y criterio técnico.",
+    },
+    {
+        "Pregunta": "¿Qué resultado, mejora o impacto tuvo tu intervención?",
+        "Objetivo": "Detectar si aporta valor real y mejora observable.",
+    },
+    {
+        "Pregunta": "¿Tienes formación específica, certificación o reconocimiento en este ámbito?",
+        "Objetivo": "Diferenciar niveles altos y evidencias formales.",
+    },
+]
 
 # =========================================================
 # UTILIDADES
@@ -180,61 +203,8 @@ def normalize_text(text: str) -> str:
     return text
 
 
-def transcribe_audio_if_possible(audio_file):
-    if audio_file is None:
-        return None, "No hay audio grabado."
-
-    if OpenAI is None:
-        return None, "La librería openai no está instalada."
-
-    api_key = ""
-    try:
-        if "OPENAI_API_KEY" in st.secrets:
-            api_key = st.secrets["OPENAI_API_KEY"]
-    except Exception:
-        pass
-
-    if not api_key:
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
-
-    if not api_key:
-        return None, "No se ha definido OPENAI_API_KEY."
-
-    suffix = Path(getattr(audio_file, "name", "audio.wav")).suffix or ".wav"
-    tmp_path = None
-
-    try:
-        client = OpenAI(api_key=api_key)
-        audio_bytes = audio_file.read()
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-
-        with open(tmp_path, "rb") as f:
-            transcript = client.audio.transcriptions.create(
-                model="gpt-4o-mini-transcribe",
-                file=f,
-                response_format="text",
-            )
-
-        text = transcript if isinstance(transcript, str) else str(transcript)
-        return text.strip(), None
-
-    except Exception as exc:
-        return None, f"No se pudo transcribir el audio: {exc}"
-
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
-
-
 def score_level(description: str, indicator: str) -> dict:
     text = normalize_text(description)
-    indicator_n = normalize_text(indicator)
     indicator_name = indicator.split(" · ", 1)[1] if " · " in indicator else indicator
 
     if not text:
@@ -248,46 +218,58 @@ def score_level(description: str, indicator: str) -> dict:
     raw_scores = {level: 0 for level in LEVELS}
     matched = {level: [] for level in LEVELS}
 
+    # 1) Señales explícitas del nivel
     for level, meta in LEVELS.items():
         for signal in meta["signals"]:
-            sig = normalize_text(signal)
-            if sig in text:
+            sig_n = normalize_text(signal)
+            if sig_n in text:
                 raw_scores[level] += 3
                 matched[level].append(signal)
 
-    for level, hints in LEVEL_ORDER_HINT.items():
+    # 2) Pistas generales
+    for level, hints in LEVEL_HINTS.items():
         for hint in hints:
             hint_n = normalize_text(hint)
             if hint_n in text:
                 raw_scores[level] += 2
                 matched[level].append(hint)
 
+    # 3) Alineación con el indicador concreto
     keywords = INDICATOR_KEYWORDS.get(indicator_name, [])
     keyword_hits = [kw for kw in keywords if normalize_text(kw) in text]
     if keyword_hits:
         raw_scores[1] += 1
         raw_scores[2] += 1
 
+    # 4) Reglas de refuerzo
     if any(x in text for x in ["certificacion", "certificado", "acreditacion", "acreditado"]):
         raw_scores[3] += 4
+
     if any(x in text for x in ["publicacion", "publicaciones", "investigacion", "liderazgo", "referente"]):
         raw_scores[4] += 4
+
     if any(x in text for x in ["universidad", "universitario", "posgrado", "master", "comite cientifico", "docencia"]):
         raw_scores[5] += 5
-    if any(x in text for x in ["referente nacional", "referente internacional", "trayectoria excepcional", "maximo"]):
+
+    if any(x in text for x in ["maximo", "referente nacional", "referente internacional", "trayectoria excepcional"]):
         raw_scores[6] += 5
 
-    practical_count = sum(1 for x in [
-        "autonomia", "visitas", "diagnostica", "interpreta", "aconseja", "manejo",
-        "sanidad", "productos", "datos", "informes", "ingles", "programas"
-    ] if x in text)
+    practical_count = sum(
+        1 for x in [
+            "autonomia", "visitas", "diagnostica", "interpreta", "aconseja",
+            "manejo", "sanidad", "productos", "datos", "informes",
+            "ingles", "programas"
+        ] if x in text
+    )
     if practical_count >= 2:
         raw_scores[1] += 2
     if practical_count >= 4:
         raw_scores[2] += 2
 
+    # 5) Selección inicial
     best_level = max(raw_scores, key=lambda x: raw_scores[x])
 
+    # 6) Fallback conservador
     if raw_scores[best_level] == 0:
         word_count = len(text.split())
         if word_count < 12:
@@ -297,6 +279,7 @@ def score_level(description: str, indicator: str) -> dict:
         else:
             best_level = 2
 
+    # 7) Barreras lógicas
     if best_level >= 4 and raw_scores[4] == 0 and raw_scores[5] == 0 and raw_scores[6] == 0:
         best_level = 3 if raw_scores[3] > 0 else 2
     if best_level == 3 and raw_scores[3] == 0:
@@ -315,11 +298,13 @@ def score_level(description: str, indicator: str) -> dict:
         fragments.append(f"alineación con el indicador: {', '.join(keyword_hits[:5])}")
 
     if fragments:
-        reason = f"Se propone {best_level} - {LEVELS[best_level]['name']} porque el texto aporta " + " | ".join(fragments) + "."
+        reason = (
+            f"Se propone {best_level} · {LEVELS[best_level]['name']} porque el texto aporta "
+            + " | ".join(fragments)
+            + "."
+        )
     else:
-        reason = f"Se propone {best_level} - {LEVELS[best_level]['name']} por ajuste global del contenido a los criterios de la escala."
-
-    reason += f" Indicador evaluado: {indicator_n}."
+        reason = f"Se propone {best_level} · {LEVELS[best_level]['name']} por ajuste global del contenido a los criterios de la escala."
 
     return {
         "score": best_level,
@@ -376,13 +361,15 @@ def results_dataframe() -> pd.DataFrame:
 initialize_state()
 
 st.title("Technical Assessment Assistant")
-st.caption("Evaluación rápida de 25 indicadores con propuesta automática de nivel 0–6, entrada por texto o voz y bloque final listo para copiar/pegar.")
+st.caption(
+    "Evaluación rápida de 25 indicadores con propuesta automática de nivel 0–6 y bloque final listo para copiar/pegar."
+)
 
 with st.expander("Ver escala de puntuación", expanded=False):
     for level, meta in LEVELS.items():
         st.markdown(f"**{level} · {meta['name']}** — {meta['short']}")
 
-left, right = st.columns([1.1, 1])
+left, right = st.columns([1.15, 1])
 
 with left:
     st.subheader("1) Evaluar un indicador")
@@ -396,48 +383,39 @@ with left:
 
     current_data = st.session_state.results[selected_indicator]
 
+    with st.expander("Guía rápida para entrevistar al técnico", expanded=False):
+        st.table(pd.DataFrame(QUESTION_GUIDE))
+        st.caption(
+            "Resume la evidencia en este orden: autonomía + caso real + decisión + resultado + acreditación/reconocimiento."
+        )
+
+    st.info(
+        "Consejo: en Windows, coloca el cursor dentro del cuadro de texto y pulsa Windows + H para dictar por voz."
+    )
+
     st.markdown("**Descripción de evidencia**")
     description = st.text_area(
         "Describe lo observado",
         value=current_data["description"],
-        height=220,
+        height=240,
         placeholder=(
-            "Ejemplo: realiza visitas con autonomía, interpreta datos de la explotación, "
-            "plantea planes de mejora y ha completado una certificación específica..."
+            "Ejemplo:\n"
+            "- Qué hace solo y con qué autonomía\n"
+            "- Caso reciente y concreto\n"
+            "- Decisión o recomendación que dio\n"
+            "- Resultado o impacto\n"
+            "- Formación, certificación o reconocimiento"
         ),
         label_visibility="collapsed",
     )
 
-    st.markdown("**Entrada por voz**")
-    audio_file = st.audio_input(
-        "Graba la descripción del indicador",
-        sample_rate=16000,
-        help="Graba la evidencia con el micrófono. La app intentará transcribirla.",
-    )
-
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 1.2])
+    c1, c2, c3 = st.columns([1, 1, 1.2])
     with c1:
-        transcribe = st.button("Transcribir voz", use_container_width=True)
-    with c2:
         evaluate = st.button("Proponer puntuación", use_container_width=True)
-    with c3:
+    with c2:
         clear_current = st.button("Limpiar indicador", use_container_width=True)
-    with c4:
+    with c3:
         save_manual = st.button("Guardar sin evaluar", use_container_width=True)
-
-    if transcribe:
-        transcript_text, transcript_error = transcribe_audio_if_possible(audio_file)
-        if transcript_error:
-            st.error(transcript_error)
-        else:
-            if description.strip():
-                description = description.strip() + "\n\n" + transcript_text.strip()
-            else:
-                description = transcript_text.strip()
-
-            st.session_state.results[selected_indicator]["description"] = description
-            st.success("Audio transcrito y añadido a la descripción.")
-            st.rerun()
 
     if clear_current:
         st.session_state.results[selected_indicator].update(
@@ -521,6 +499,7 @@ st.text_area(
 )
 
 col_a, col_b, col_c = st.columns([1, 1, 1.2])
+
 with col_a:
     st.download_button(
         "Descargar CSV",
@@ -529,6 +508,7 @@ with col_a:
         mime="text/csv",
         use_container_width=True,
     )
+
 with col_b:
     json_data = json.dumps(st.session_state.results, ensure_ascii=False, indent=2)
     st.download_button(
@@ -538,6 +518,7 @@ with col_b:
         mime="application/json",
         use_container_width=True,
     )
+
 with col_c:
     if st.button("Reiniciar toda la evaluación", use_container_width=True):
         del st.session_state["results"]
@@ -547,12 +528,3 @@ with col_c:
 with st.expander("Orden de exportación de los 25 indicadores", expanded=False):
     for idx, indicator in enumerate(INDICATOR_LIST, start=1):
         st.write(f"{idx:02d}. {indicator}")
-
-with st.expander("Cómo desplegar", expanded=False):
-    st.code(
-        "pip install -r requirements.txt\nstreamlit run main.py",
-        language="bash",
-    )
-    st.markdown(
-        "Para transcribir voz automáticamente, añade OPENAI_API_KEY en .streamlit/secrets.toml o como variable de entorno."
-    )
